@@ -1,4 +1,4 @@
-# Gargantua - Interstellar Black Hole Simulation
+# Black Hole Simulation
 
 This project is a real-time, ray-marched rendering of a black hole. It is written in Python and leverages the **Taichi** library for high-performance, GPU-accelerated graphics.
 
