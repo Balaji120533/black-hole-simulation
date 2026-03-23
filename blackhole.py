@@ -8,41 +8,40 @@ RES_Y = 1080
 pixels = ti.Vector.field(3, dtype=float, shape=(RES_X, RES_Y))
 
 # ── Camera ──────────────────────────────────────────────────────────────────
-cam_pos       = ti.Vector.field(3, dtype=float, shape=())
-cam_lookat    = ti.Vector.field(3, dtype=float, shape=())
-cam_up        = ti.Vector.field(3, dtype=float, shape=())
-fov           = 50.0
+cam_pos= ti.Vector.field(3, dtype=float, shape=())
+cam_lookat= ti.Vector.field(3, dtype=float, shape=())
+cam_up = ti.Vector.field(3, dtype=float, shape=())
+fov = 50.0
 
-mouse_prev    = ti.Vector.field(2, dtype=float, shape=())
-camera_angles = ti.Vector.field(2, dtype=float, shape=())
-camera_dist   = ti.field(dtype=float, shape=())
-auto_rotate   = ti.field(dtype=int,   shape=())
+mouse_prev= ti.Vector.field(2, dtype=float, shape=())
+camera_angles= ti.Vector.field(2, dtype=float, shape=())
+camera_dist= ti.field(dtype=float, shape=())
+auto_rotate= ti.field(dtype=int,   shape=())
 
 # ── Particle system (sparse — disk region only) ──────────────────────────────
-NUM_PARTICLES          = 600          # very few, only disk-region hot gas
-particle_pos           = ti.Vector.field(3, dtype=float, shape=NUM_PARTICLES)
-particle_vel           = ti.Vector.field(3, dtype=float, shape=NUM_PARTICLES)
-particle_life          = ti.field(dtype=float, shape=NUM_PARTICLES)
+NUM_PARTICLES= 600          # very few, only disk-region hot gas
+particle_pos= ti.Vector.field(3, dtype=float, shape=NUM_PARTICLES)
+particle_vel= ti.Vector.field(3, dtype=float, shape=NUM_PARTICLES)
+particle_life= ti.field(dtype=float, shape=NUM_PARTICLES)
 particles_screen_field = ti.Vector.field(2, dtype=float, shape=NUM_PARTICLES)
 
 # ── Ray march settings ───────────────────────────────────────────────────────
-MAX_STEPS = 400          # more steps → better lensing continuity
-MAX_DIST  = 25.0
+MAX_STEPS = 600          # more steps for the larger view distance
+MAX_DIST  = 45.0
 DT        = 0.035        # smaller step → smoother bending
 
-# ── Black hole physics ───────────────────────────────────────────────────────
-G                = 1.0
-SCHWARZSCHILD_R  = 0.5    # event horizon radius
-PHOTON_SPHERE_R  = 0.75   # 1.5 × rs  (photons orbit here)
-# Strong lensing is the KEY to Interstellar's look — disk wraps over top
-LENSING_STRENGTH = 3.2    # greatly increased so back-side disk bends around
+# ── Black hole physics ───
+G = 1.0
+SCHWARZSCHILD_R= 0.5    # event horizon radius
+PHOTON_SPHERE_R= 0.75   # 1.5 × rs  (photons orbit here)
+LENSING_STRENGTH= 3.2    # greatly increased so back-side disk bends around
 
-# ── Accretion disk (Gargantua-style: thin, intensely bright) ─────────────────
-DISK_INNER_R   = 0.55     # just outside the event horizon
-DISK_OUTER_R   = 5.0      # wide disk
-DISK_DENSITY_M = 3.5      # bright & opaque
+# ── Accretion disk ────
+DISK_INNER_R= 0.55     # just outside the event horizon
+DISK_OUTER_R= 10.0     # extended horizontally for a massive disk
+DISK_DENSITY_M= 3.5      # bright & opaque
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ─
 
 @ti.func
 def mix(x, y, a):
@@ -77,10 +76,10 @@ def star_field(ray_dir):
         fx = uu - cx
         fy = vv - cy
 
-        sx     = hash_f(cx, cy)
-        sy     = hash_f(cx + 0.5, cy + 0.5)
-        bright = hash_f(cx + 1.1, cy + 2.3)
-        temp   = hash_f(cx + 4.7, cy + 8.1)
+        sx= hash_f(cx, cy)
+        sy= hash_f(cx + 0.5, cy + 0.5)
+        bright= hash_f(cx + 1.1, cy + 2.3)
+        temp= hash_f(cx + 4.7, cy + 8.1)
 
         dx = fx - sx
         dy = fy - sy
@@ -135,8 +134,8 @@ def disk_density(p, t):
     r       = ti.Vector([p.x, p.z]).norm()
     density = 0.0
     if r > DISK_INNER_R and r < DISK_OUTER_R:
-        # Gargantua: disk is very thin vertically
-        vert  = ti.exp(-25.0 * p.y * p.y)
+        # Widened disk for thicker glowing lensed rings
+        vert  = ti.exp(-6.0 * p.y * p.y)
         ang   = ti.atan2(p.z, p.x) + t * 0.25
         # Layered spiral density waves (two frequencies)
         n1    = 0.5 + 0.5 * ti.sin(6.0  * r + 3.0  * ang)
@@ -147,7 +146,7 @@ def disk_density(p, t):
         density = vert * noise * edge * DISK_DENSITY_M
     return density
 
-# ── Accretion disk color (Interstellar warm orange/amber palette) ─────────────
+# ── Accretion disk color ─────────────
 
 @ti.func
 def disk_color(p, ray_dir):
@@ -155,7 +154,7 @@ def disk_color(p, ray_dir):
     frac = ti.max(0.0, ti.min(1.0, (r - DISK_INNER_R) / (DISK_OUTER_R - DISK_INNER_R)))
 
     # Innermost: white-hot / yellow-white  (>5000 K blackbody)
-    # Mid:       brilliant orange-amber    (Interstellar signature)
+    # Mid:       brilliant orange-amber   
     # Outer:     deep burnt red
     c_inner = ti.Vector([1.00, 0.90, 0.65])   # hot white-yellow
     c_mid   = ti.Vector([1.00, 0.52, 0.08])   # vivid amber-orange
@@ -169,7 +168,7 @@ def disk_color(p, ray_dir):
 
     return col * doppler_boost(p, ray_dir)
 
-# ── Camera control kernel ─────────────────────────────────────────────────────
+# ── Camera control kernel ─
 
 @ti.func
 def update_camera():
@@ -184,13 +183,13 @@ def update_camera():
 def update_cam_kernel():
     update_camera()
 
-# ── Init ──────────────────────────────────────────────────────────────────────
+# ── Init ─────
 
 @ti.kernel
 def init_simulation():
-    # Slightly elevated angle → see the disk arc wrap over top (Interstellar view)
+    # Slightly elevated angle → see the disk arc wrap over top
     camera_angles[None] = ti.Vector([0.0, 0.22])
-    camera_dist[None]   = 9.0
+    camera_dist[None]   = 14.0
     cam_lookat[None]    = ti.Vector([0.0, 0.0, 0.0])
     cam_up[None]        = ti.Vector([0.0, 1.0, 0.0])
     auto_rotate[None]   = 1
@@ -209,7 +208,7 @@ def init_simulation():
         particle_vel[i]  = tang * v_orb + rad_in * 0.04
         particle_life[i] = ti.random()
 
-# ── Particle update ───────────────────────────────────────────────────────────
+# ── Particle update ────
 
 @ti.kernel
 def update_particles(dt: float):
@@ -237,7 +236,7 @@ def update_particles(dt: float):
             particle_pos[i]  = p
             particle_life[i] -= 0.001
 
-# ── Main render kernel ────────────────────────────────────────────────────────
+# ── Main render kernel ─
 
 @ti.kernel
 def render(t: float):
@@ -264,19 +263,7 @@ def render(t: float):
                 hit_bh = True
                 break
 
-            # ── Photon ring: the thin bright arc that wraps around ──────────
-            # Two shell bands give the characteristic double-ring of Interstellar
-            d_ps = ti.abs(d2c - PHOTON_SPHERE_R)
-            if d_ps < 0.12:
-                norm_d    = d_ps / 0.12
-                # Exponential brightness spike at the photon sphere
-                intensity = ti.exp(-norm_d * norm_d * 8.0) * DT * 28.0
-                # Warm amber glow for the ring
-                ring_col  = ti.Vector([2.8, 1.4, 0.5])
-                accum_color   += ring_col * intensity * transmittance
-                transmittance *= ti.exp(-intensity * 2.0)
-
-            # ── Accretion disk ───────────────────────────────────────────────
+            # ── Accretion disk ────
             dens = disk_density(pos, t)
             if dens > 0.001:
                 dc            = disk_color(pos, ray_dir)
@@ -323,9 +310,9 @@ def project_particles():
         else:
             particles_screen_field[i] = ti.Vector([-10.0, -10.0])
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
+# ── Main loop ───
 
-window = ti.ui.Window("Gargantua — Interstellar Black Hole", res=(RES_X, RES_Y))
+window = ti.ui.Window("Black Hole", res=(RES_X, RES_Y))
 canvas = window.get_canvas()
 
 init_simulation()
@@ -354,9 +341,9 @@ while window.running:
             window.running = False
 
     if window.is_pressed('w'):
-        camera_dist[None] = ti.max(2.0, camera_dist[None] - 0.1)
+        camera_dist[None] = ti.max(2.0, camera_dist[None] - 0.2)
     if window.is_pressed('s'):
-        camera_dist[None] = ti.min(20.0, camera_dist[None] + 0.1)
+        camera_dist[None] = ti.min(40.0, camera_dist[None] + 0.2)
 
     if auto_rotate[None] == 1 and not window.is_pressed(ti.ui.LMB):
         camera_angles[None].x += 0.004
